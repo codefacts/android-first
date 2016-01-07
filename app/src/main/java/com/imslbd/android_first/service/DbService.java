@@ -1,256 +1,172 @@
 package com.imslbd.android_first.service;
 
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+
+import com.imslbd.android_first.intfs.AsyncHandler;
+import com.imslbd.android_first.model.Contact;
+
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
-
-import io.crm.intfs.ConsumerUnchecked;
-
-import static com.imslbd.android_first.util.Util.EMPTY_JSON_ARRAY;
-import static com.imslbd.android_first.util.Util.EMPTY_JSON_OBJECT;
-import static com.imslbd.android_first.util.Util.or;
 
 /**
- * Created by shahadat on 1/5/16.
+ * Created by shahadat on 1/7/16.
  */
 public class DbService {
-    public static void inset(String tableName, JSONObject data, ConsumerUnchecked<Long> consumerUnchecked) {
+    private static MyDbHelper dbHelper;
+    private static final ValueObtainer[] OBTAINERS;
 
+    public static void initDb(Context context) {
+        if (dbHelper != null) dbHelper = new MyDbHelper(context);
+
+        dbHelper.addContact(new Contact("Ravi", "9100000000"));
+        dbHelper.addContact(new Contact("Srinivas", "9199999999"));
+        dbHelper.addContact(new Contact("Tommy", "9522222222"));
+        dbHelper.addContact(new Contact("Karthik", "9533333333"));
     }
 
-    public static void main(String... args) {
-//        toSql(new JSONObject()
-//                .put("select", new JSONArray()
-//                                .put(new JSONObject().put("id", "").put("as", ""))
-//                                .put(new JSONObject().put("name", "name").put("as", ""))
-//                )
-//                .put("from", new JSONArray()
-//                        .put(new JSONObject().put("name", ))));
-        JSONObject jsonObject = null;
+    public static void query(JSONObject js, AsyncHandler<JSONArray> handler) throws JSONException {
+        ArrayList<String> params = new ArrayList<>();
+        String query = JsonToSqlParser.toSqlQuery(js, params);
+        SQLiteDatabase dbr = dbr();
+        Cursor cursor = null;
         try {
-            jsonObject = new JSONObject().putOpt("id", "").putOpt("name", "");
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+            JSONArray array = new JSONArray();
+            cursor = dbr.rawQuery(query, params.toArray(new String[params.size()]));
 
-    }
+            for (; cursor.moveToNext(); ) {
 
-    public static String toSql(JSONObject query) {
-        return toSql(or(query.optJSONArray("select"), EMPTY_JSON_ARRAY),
-            or(query.optJSONArray("from"), EMPTY_JSON_ARRAY),
-            or(query.optJSONArray("join"), EMPTY_JSON_ARRAY),
-            or(query.optJSONObject("where"), EMPTY_JSON_OBJECT),
-            or(query.optJSONArray("orderBy"), EMPTY_JSON_ARRAY),
-            or(query.optJSONArray("groupBy"), EMPTY_JSON_ARRAY),
-            or(query.optJSONObject("having"), EMPTY_JSON_OBJECT));
-    }
-
-    public static String toSql(JSONArray select, JSONArray from, JSONArray join,
-                               JSONObject where, JSONArray orderBy, JSONArray groupBy, JSONObject having) {
-
-        List<String> params = new ArrayList<>();
-
-        String selectStr = selectStr(select, new StringBuilder(), params).toString();
-        String fromStr = fromStr(from, new StringBuilder()).toString();
-        String joinStr = joinStr(join, new StringBuilder()).toString();
-        String whereStr = whereStr(where, new StringBuilder(), params);
-        String groupByStr = groupByStr(groupBy, new StringBuilder()).toString();
-        String havingStr = havingStr(having, new StringBuilder(), params).toString();
-        String orderByStr = orderByStr(orderBy, new StringBuilder()).toString();
-
-        selectStr = selectStr.isEmpty() ? "select *" : "select " + selectStr;
-        fromStr = "from " + fromStr;
-        whereStr = whereStr.trim().isEmpty() ? "" : "where " + whereStr;
-
-        if (!groupByStr.trim().isEmpty()) {
-            groupByStr = "group by " + groupByStr;
-            havingStr = havingStr.trim().isEmpty() ? "" : "having " + havingStr;
-        }
-
-        return selectStr + " " + fromStr + " " + joinStr + " " + whereStr + " " + groupByStr + " " + havingStr + " " + orderByStr;
-    }
-
-    public static StringBuilder joinStr(JSONArray joinList, final StringBuilder builder) {
-        final int length = builder.length();
-        for (int i = 0; i < joinList.length(); i++) {
-            JSONObject value = joinList.optJSONObject(i);
-            JSONObject on = value.optJSONObject("on");
-            String toField = on.keys().next();
-            builder.append(value.optString("type", "")).append(" ").append(value.optString("name"))
-                .append(" ").append(value.optString("as"))
-                .append(" on ")
-                .append(value.optString("as").isEmpty() ? "" : value.optString("as") + ".")
-                .append(value.optString("field"))
-                .append(" = ")
-                .append(on.optString(toField).isEmpty() ? "" : on.optString(toField) + ".")
-                .append(toField).append(" ");
-        }
-        return builder.length() > length ? builder.delete(builder.length() - " ".length(), builder.length()) : builder;
-    }
-
-    public static StringBuilder fromStr(JSONArray from, StringBuilder builder) {
-        final int length = builder.length();
-        for (int i = 0; i < from.length(); i++) {
-            Object obj = from.opt(i);
-
-            if (obj instanceof JSONObject) {
-                JSONObject js = (JSONObject) obj;
-                if (js.length() == 1) {
-                    String name = js.keys().next();
-                    String as = js.optString(name, "");
-                    builder.append(name).append(as.isEmpty() ? "" : " " + as).append(", ");
-                } else {
-                    throw new RuntimeException("Json Object does not contain a valid key to parse. JS: " + js.toString());
+                JSONObject jsObj = new JSONObject();
+                final int columnCount = cursor.getColumnCount();
+                for (int i = 0; i < columnCount; i++) {
+                    OBTAINERS[cursor.getType(i)].put(jsObj, cursor.getColumnName(i), cursor, i);
                 }
-            } else if (obj instanceof String) {
-                builder.append((String) obj).append(", ");
-            } else {
-                throw new RuntimeException("Input Object is not valid. Obj: " + obj);
+                array.put(jsObj);
             }
+            handler.accept(null, array);
+        } catch (Exception ex) {
+            handler.accept(ex, null);
+        } finally {
+            if (cursor != null) cursor.close();
+            dbr.close();
         }
-        return builder.length() > length ? builder.delete(builder.length() - ", ".length(), builder.length()) : builder;
     }
 
-    public static StringBuilder selectStr(JSONArray select, final StringBuilder builder, List<String> params) {
-        final int length = builder.length();
+    public static void insert(JSONObject js, AsyncHandler<Long> handler) {
+        SQLiteDatabase dbw = dbw();
+        try {
+            long id = dbw.insertOrThrow(js.optString("tableName"), null, toContentValues(js.optJSONObject("data")));
+            handler.accept(null, id);
+        } catch (Exception ex) {
+            handler.accept(ex, null);
+        } finally {
+            dbw.close();
+        }
+    }
 
-        for (int i = 0; i < select.length(); i++) {
-            Object obj = select.opt(i);
+    public static void update(JSONObject js, AsyncHandler<Integer> handler) {
+        SQLiteDatabase dbw = dbw();
+        try {
+            ArrayList<String> params = new ArrayList<>();
+            String whereStr = JsonToSqlParser.whereStr(js, new StringBuilder(), params).toString();
+            int update = dbw.update(js.optString("tableName"), toContentValues(js.optJSONObject("data")), whereStr, params.toArray(new String[params.size()]));
+            handler.accept(null, update);
+        } catch (Exception ex) {
+            handler.accept(ex, null);
+        } finally {
+            dbw.close();
+        }
+    }
 
-            if (obj instanceof JSONObject) {
-                JSONObject js = (JSONObject) obj;
-                if (js.length() == 1) {
-                    if (js.has("$param")) {
-                        builder.append(singleOperand(js.opt("$param"), params));
-                    } else {
-                        String name = js.keys().next();
-                        String as = js.optString(name, "");
-                        builder.append(as.isEmpty() ? "" : as + ".").append(name).append(", ");
-                    }
-                } else if (js.has("rename")) {
-                    builder.append(js.optString("as", "").isEmpty() ? "" : js.optString("as") + ".")
-                        .append(js.optString("name")).append(js.optString("rename", "").isEmpty() ? "" : " as " + js.optString("rename"))
-                        .append(", ");
+    public static void delete(JSONObject js, AsyncHandler<Integer> handler) {
+        SQLiteDatabase dbw = dbw();
+        try {
+            ArrayList<String> params = new ArrayList<>();
+            String where = JsonToSqlParser.whereStr(js.optJSONObject("where"), new StringBuilder(), params).toString();
+            int delete = dbw.delete(js.optString("tableName"), where, params.toArray(new String[params.size()]));
+            handler.accept(null, delete);
+        } catch (Exception ex) {
+            handler.accept(ex, null);
+        } finally {
+            dbw.close();
+        }
+    }
+
+    private static ContentValues toContentValues(JSONObject js) {
+        ContentValues contentValues = new ContentValues();
+        Iterator<String> keys = js.keys();
+        for (; keys.hasNext(); ) {
+            String key = keys.next();
+            Object val = js.opt(key);
+
+            if (val instanceof Number) {
+                if (val instanceof Float || val instanceof Double) {
+                    contentValues.put(key, ((Number) val).floatValue());
                 } else {
-                    throw new RuntimeException("Json Object does not contain a valid key to parse. JS: " + js.toString());
+                    contentValues.put(key, ((Number) val).intValue());
                 }
-            } else if (obj instanceof String) {
-                builder.append((String) obj).append(", ");
+            } else if (val instanceof Boolean) {
+                contentValues.put(key, (Boolean) val);
+            } else if (val instanceof String) {
+                contentValues.put(key, ((String) val));
+            } else if (val instanceof byte[]) {
+                contentValues.put(key, ((byte[]) val));
             } else {
-                throw new RuntimeException("Input Object is not valid. Obj: " + obj);
+                throw new RuntimeException("Invalid value :" + key + " -> " + val);
             }
         }
-        return builder.length() > length ? builder.delete(builder.length() - ", ".length(), builder.length()) : builder;
+        return contentValues;
     }
 
-    public static StringBuilder havingStr(JSONObject having, StringBuilder builder, List<String> params) {
-        return parseOp(having, new StringBuilder(), params);
+    private static SQLiteDatabase dbw() {
+        return dbHelper.getWritableDatabase();
     }
 
-    public static StringBuilder orderByStr(JSONArray orderBy, final StringBuilder builder) {
-        final int length = builder.length();
-        for (int i = 0; i < orderBy.length(); i++) {
-            JSONObject value = orderBy.optJSONObject(i);
-            builder.append(value.optString("as") == null ? "" : value.optString("as") + ".")
-                .append(value.optString("name")).append(" ").append(value.optString("order"))
-                .append(", ");
-        }
-        return builder.length() > length ? builder.delete(builder.length() - ", ".length(), builder.length()) : builder;
+    private static SQLiteDatabase dbr() {
+        return dbHelper.getReadableDatabase();
     }
 
-    public static StringBuilder groupByStr(JSONArray groupBy, final StringBuilder builder) {
-        final int length = builder.length();
+    private static interface ValueObtainer {
+        void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException;
+    }
 
-        for (int i = 0; i < groupBy.length(); i++) {
-
-            Object obj = groupBy.opt(i);
-
-            if (obj instanceof JSONObject) {
-                JSONObject js = (JSONObject) obj;
-                if (js.length() == 1) {
-
-                    String name = js.keys().next();
-                    String as = js.optString(name, "");
-
-                    builder.append(as.isEmpty() ? "" : as + ".")
-                        .append(name).append(", ");
-                } else {
-                    throw new RuntimeException("Json Object does not contain a valid key to parse. JS: " + js.toString());
-                }
-            } else if (obj instanceof String) {
-                builder.append((String) obj).append(", ");
-            } else {
-                throw new RuntimeException("Input Object is not valid. Obj: " + obj);
+    static {
+        OBTAINERS = new ValueObtainer[5];
+        OBTAINERS[Cursor.FIELD_TYPE_NULL] = new ValueObtainer() {
+            @Override
+            public void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException {
+                js.putOpt(key, null);
             }
-        }
-
-        return builder.length() > length ? builder.delete(builder.length() - ", ".length(), builder.length()) : builder;
-    }
-
-    public static String whereStr(JSONObject where, StringBuilder builder, List<String> params) {
-        return parseOp(where, builder, params).toString();
-    }
-
-    public static String escapeQuote(String s) {
-        return "'" + s.replace("'", "\\'") + "'";
-    }
-
-    private static String singleOperand(Object operand, List<String> params) {
-        if (operand instanceof String) {
-            params.add((String) operand);
-            return "?";
-        }
-        return operand.toString();
-    }
-
-    private static StringBuilder parseOp(JSONObject js, StringBuilder builder, List<String> params) {
-
-        int type = js.optInt("type");
-
-        if (type == OperatorTypes.UNERY_PREFIX) {
-
-            builder.append(js.optString("op")).append(" ");
-
-            if (js.opt("opnd") instanceof JSONObject) {
-                parseOp(js.optJSONObject("opnd"), builder, params);
-            } else {
-                builder.append(singleOperand(js.opt("opnd"), params));
+        };
+        OBTAINERS[Cursor.FIELD_TYPE_INTEGER] = new ValueObtainer() {
+            @Override
+            public void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException {
+                js.putOpt(key, cursor.getInt(columnIndex));
             }
-
-        } else if (type == OperatorTypes.BINERY) {
-
-            builder.append("(");
-            if (js.opt("opnd1") instanceof JSONObject) {
-                parseOp(js.optJSONObject("opnd1"), builder, params);
-            } else {
-                builder.append(singleOperand(js.opt("opnd1"), params));
+        };
+        OBTAINERS[Cursor.FIELD_TYPE_FLOAT] = new ValueObtainer() {
+            @Override
+            public void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException {
+                js.putOpt(key, cursor.getFloat(columnIndex));
             }
-            builder.append(" ").append(js.optString("op")).append(" ");
-            if (js.opt("opnd2") instanceof JSONObject) {
-                parseOp(js.optJSONObject("opnd2"), builder, params);
-            } else {
-                builder.append(singleOperand(js.opt("opnd2"), params));
+        };
+        OBTAINERS[Cursor.FIELD_TYPE_STRING] = new ValueObtainer() {
+            @Override
+            public void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException {
+                js.putOpt(key, cursor.getString(columnIndex));
             }
-            builder.append(")");
-        } else if (type == OperatorTypes.FIELD) {
-            builder.append(js.optString("as", "").isEmpty() ? js.optString("name") : js.optString("as") + "." + js.optString("name"));
-
-        } else if (type == OperatorTypes.LIST) {
-            builder.append(js.optString("before"));
-            String seperator = js.optString("seperator");
-            JSONArray list = js.optJSONArray("opnds");
-            final int length = builder.length();
-            for (int i = 0; i < list.length(); i++) {
-                builder.append(singleOperand(list.opt(i), params)).append(seperator);
+        };
+        OBTAINERS[Cursor.FIELD_TYPE_BLOB] = new ValueObtainer() {
+            @Override
+            public void put(JSONObject js, String key, Cursor cursor, int columnIndex) throws JSONException {
+                js.putOpt(key, cursor.getBlob(columnIndex));
             }
-            if (builder.length() > length) {
-                builder.delete(builder.length() - seperator.length(), builder.length());
-            }
-            builder.append(js.optString("after"));
-        }
-        return builder;
+        };
     }
 }

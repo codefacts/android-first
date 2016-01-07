@@ -128,10 +128,14 @@ public class Util {
     }
 
     public static StringBuilder join(final String delimeter, Iterator<String> iterator, final StringBuilder builder) {
+        return join(delimeter, iterator, builder, "", "");
+    }
+
+    public static StringBuilder join(final String delimeter, Iterator<String> iterator, final StringBuilder builder, final String before, final String after) {
         Stream.of(iterator).forEach(new Consumer<String>() {
             @Override
             public void accept(String value) {
-                builder.append(value).append(delimeter);
+                builder.append(before).append(value).append(after).append(delimeter);
             }
         });
         if (builder.length() > 0)
